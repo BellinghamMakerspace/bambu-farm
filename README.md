@@ -1,191 +1,213 @@
-🖨️ Bambu Farm (Hardened Edition)
+# 🖨️ Bambu Farm — Bellingham Makerspace Fork
 
-A secure, web-based dashboard to monitor and manage multiple Bambu Lab printers (A1, P1, X1 series) over a local network or cloud.
-🚀 Quick Start (Fedora/Linux)
-1. Prerequisites
+A web-based dashboard to monitor and manage multiple Bambu Lab printers (A1, P1, X1 series) using MQTT / FTP / RTSP.
 
-    Java 21 LTS (Required for Quarkus 3.x)
+**Forked from [TFyre/bambu-farm](https://github.com/TFyre/bambu-farm) v1.8.0**
 
-    SSL Certificates: cert.pem and key.pem must be in the root directory.
+---
 
-    Fedora Users: Run sudo update-ca-trust after adding your cert to anchors to fix Vaadin Push warnings.
+> [!IMPORTANT]
+> **Firmware Blockade:** Bambu Lab has started blocking printing via MQTT unless LAN Mode is enabled. If you cannot print, consider downgrading your firmware or enabling Cloud Mode in the config.
 
-2. Installation & Build
-Bash
+> [!WARNING]
+> **X1C Compatibility:** FTPS connections for the X1C require SSL Session Reuse. Set `bambu.use-bouncy-castle=true` in your `.env` and use the JVM flag `-Djdk.tls.useExtendedMasterSecret=false`.
 
+---
+
+## What This Fork Adds
+
+This fork adds a **database-backed user management system** so Makerspace admins can create, edit, and remove user accounts from the web UI — no SSH or service restarts required.
+
+### Implemented Features
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| User Management UI | ✅ Done | Admin-only Vaadin page at `/admin/users` for CRUD operations |
+| H2 Database Storage | ✅ Done | Users stored in `bambu-users.mv.db` via Hibernate ORM Panache |
+| Auto-Migration | ✅ Done | Existing `.env` users imported to DB on first boot |
+| Bcrypt Password Hashing | ✅ Done | All passwords stored as bcrypt hashes, never plaintext |
+| Password Policy | ✅ Done | Minimum 10 characters, requires uppercase, lowercase, digit, special character |
+| Username Validation | ✅ Done | 3-32 chars, alphanumeric plus `.` `-` `_` only |
+| Login Rate Limiting | ✅ Done | 5 failed attempts triggers 5-minute lockout per account |
+| Audit Logging | ✅ Done | All auth events and user changes logged with `AUDIT:` / `SECURITY:` prefixes |
+| Backward Compatibility | ✅ Done | All existing `.env` configurations continue to work unchanged |
+
+### Not Implemented (Yet)
+
+These features are **not present** in this fork despite what previous documentation may have claimed:
+
+- ❌ H2 database encryption at rest (AES cipher)
+- ❌ SSL/TLS termination (HTTPS on port 8443)
+- ❌ `start-farm.sh` atomic launcher script
+- ❌ Obico / AI failure detection integration
+- ❌ SMS / Twilio notifications
+- ❌ Double opt-in consent workflow
+- ❌ Progressive tarpitting (exponential backoff) — current implementation uses flat lockout
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **Java 21 LTS** (OpenJDK, Zulu, or Temurin)
+- **Maven** (for building from source)
+
+### Build
+
+```bash
 git clone https://github.com/BellinghamMakerspace/bambu-farm.git
 cd bambu-farm
 mvn clean install -Pproduction
+```
 
-3. Secure Launch
+### Configure
 
-Do not run the JAR directly. Use the provided launcher to ensure SSL and Config priorities are handled:
-Bash
+Create a `.env` file in the same directory as the JAR:
 
-chmod +x start-farm.sh
-./start-farm.sh
-
-🛡️ Cybersecurity Hardening
-
-This fork of Bambu Farm includes critical security upgrades implemented for production environments:
-
-    AES-256 at Rest: The H2 database (bambu-users.mv.db) is encrypted using AES. Without the specific CIPHER key in your .env, the database is an unreadable binary blob.
-
-    Enforced SSL Redirect: All traffic on 8080 is automatically redirected to the secure 8443 port.
-
-    Progressive Tarpitting: The login system includes a rate-limiting delay that increases exponentially on failed attempts, effectively neutralizing brute-force attacks.
-
-    Bcrypt Hashing: User passwords are never stored in plain text; only high-entropy Bcrypt hashes are permitted in the configuration.
-
-⚙️ Configuration (.env)
-
-Create a .env file in the root directory. Note: If you change encryption keys, you must delete the existing .mv.db file.
-Properties
-
-# --- NETWORK ---
+```properties
 quarkus.http.host=0.0.0.0
 quarkus.http.port=8080
 
-# --- DATABASE (AES HARDENING) ---
-QUARKUS_DATASOURCE_JDBC_URL=jdbc:h2:file:./bambu-users;CIPHER=AES
-QUARKUS_DATASOURCE_PASSWORD=YourSecureSecretKey password123
-
-# --- ADMIN CREDENTIALS ---
-# Password: admin (Bcrypt hashed)
-bambu.users.admin.password=$2a$10$0tygFgl.x3QZR9Az9TYcmu0ip22PqYi5r8QPx.nubrZVYtODy9vsGI
+# Admin account (will be auto-migrated to database on first boot)
+bambu.users.admin.password=CHANGE_ME_TO_A_STRONG_PASSWORD
 bambu.users.admin.role=admin
 
-# --- PRINTERS ---
-bambu.printers.p1s_lab.device-id=SERIAL_HERE
-bambu.printers.p1s_lab.access-code=CODE_HERE
-bambu.printers.p1s_lab.ip=192.168.1.XXX
+# Printers
+bambu.printers.p1p.device-id=SERIAL_NUMBER
+bambu.printers.p1p.access-code=ACCESS_CODE
+bambu.printers.p1p.ip=192.168.1.XXX
+bambu.printers.p1p.model=p1p
+```
 
-🛠️ Troubleshooting
-"Push will not work" (Vaadin Error)
+### Run
 
-This occurs when the browser blocks the WebSocket (wss://) handshake due to a self-signed certificate.
-Fix (Fedora):
+```bash
+java -jar bambu-web-1.8.0-runner.jar
+```
 
-    sudo cp cert.pem /etc/pki/ca-trust/source/anchors/bambu.crt
+Open `http://YOUR_IP:8080` and log in. Admin users can access **User Management** from the navigation drawer.
 
-    sudo update-ca-trust
+### Alpine Linux / OpenRC Service
 
-    Restart your browser.
+See the upstream [README.service.md](https://github.com/TFyre/bambu-farm/blob/main/README.service.md) for service setup. Key addition for this fork: ensure the init script includes `directory="/opt/bambu-farm"` so Quarkus can find the `.env` file.
 
-"Port 8080 in use"
+---
 
-The start-farm.sh script automatically attempts to kill processes on 8080. If it fails:
-Bash
+## User Management
 
+### Adding Users via Web UI
+
+1. Log in as an admin
+2. Open the hamburger menu → **User Management**
+3. Click **Add User**
+4. Set username, password (must meet policy), and role
+
+### Password Policy
+
+Passwords must meet **all** of the following:
+- At least 10 characters
+- At least one uppercase letter (A-Z)
+- At least one lowercase letter (a-z)
+- At least one digit (0-9)
+- At least one special character
+
+### Rate Limiting
+
+After 5 failed login attempts, the account is locked for 5 minutes. This resets on successful login. Lockout state is tracked in memory (resets on service restart).
+
+### Database Backup
+
+User data is stored in `bambu-users.mv.db` in the working directory. Back this file up regularly. If you lose it, users will be re-migrated from `.env` on next boot (but any users created via the web UI will be lost).
+
+---
+
+## Configuration Reference
+
+See the upstream [TFyre/bambu-farm README](https://github.com/TFyre/bambu-farm#readme) for the full configuration reference including printer options, AMS settings, cloud mode, and MQTT configuration.
+
+### Additional Properties (This Fork)
+
+These are added to `application.properties` inside the JAR and generally don't need to be changed:
+
+```properties
+quarkus.datasource.db-kind=h2
+quarkus.datasource.jdbc.url=jdbc:h2:file:./bambu-users;AUTO_RECONNECT=TRUE
+quarkus.hibernate-orm.database.generation=update
+```
+
+---
+
+## Troubleshooting
+
+### "Port 8080 in use"
+
+A previous instance is still running:
+
+```bash
+# Linux
 sudo fuser -k 8080/tcp
+# or
+pkill -9 -f bambu-web
+```
 
-"Store header is corrupt"
+### Service starts but .env not loaded
 
-This happens if you try to open an unencrypted database with an AES-enabled config.
-Fix: rm bambu-users.mv.db and restart.
-🤝 Contributing
+Quarkus reads `.env` from the **current working directory** only. If running as a service, ensure the init script sets `directory="/opt/bambu-farm"` (OpenRC) or `WorkingDirectory=/opt/bambu-farm` (systemd).
 
-    Fork the repository to the BellinghamMakerspace organization.
+### Users not showing in User Management
 
-    Create a feature branch (git checkout -b feature/cool-new-thing).
+Users are migrated from `.env` to the database on first startup. If you added users to `.env` after the initial boot, they won't appear until you either restart the service or use the web UI to create them.
 
-    Commit your changes and push to your fork.
+---
 
-    Open a Pull Request against the main branch.
+## Architecture
 
-Would you like me to generate a CONTRIBUTING.md file specifically for the Makerspace members to go along with this README?
+```
+Login Request
+    → DatabaseIdentityProvider (checks H2 database)
+        → Success? → Authenticated
+        → Fail? → throws AuthenticationFailedException
+    → TFyreIdentityProvider (checks .env users)
+        → Success? → Authenticated  
+        → Fail? → 401 Unauthorized
+```
 
-I want to include the orginal readme and warnings
+### New Files (vs upstream)
 
-This README combines the original project documentation and warnings with the specific Cybersecurity Hardening and Fedora-specific fixes we've implemented for the Bellingham Makerspace.
-🖨️ Bambu Farm (Makerspace Edition)
+```
+bambu/src/main/java/com/tfyre/bambu/user/
+├── DatabaseIdentityProvider.java   # Quarkus IdentityProvider for DB auth
+├── UserEntity.java                 # JPA entity
+├── UserRepository.java             # Panache repository
+└── UserService.java                # Business logic, password policy, rate limiting
 
-A secure, web-based dashboard to monitor and manage multiple Bambu Lab printers (A1, P1, X1 series) using MQTT / FTP / RTSP.
-⚠️ CRITICAL WARNINGS (Original Project)
+bambu/src/main/java/com/tfyre/bambu/view/admin/
+└── UserManagementView.java         # Vaadin admin UI
+```
 
-    [!IMPORTANT]
+### Modified Files (vs upstream)
 
-    Firmware Blockade: Bambu Lab has started blocking printing via MQTT unless LAN Mode is enabled. If you cannot print, consider downgrading your firmware or enabling Cloud Mode in the config.
+- `bambu/pom.xml` — added `quarkus-hibernate-orm-panache` and `quarkus-jdbc-h2` dependencies
+- `bambu/src/main/resources/application.properties` — added H2 datasource config
+- `bambu/src/main/java/com/tfyre/bambu/MainLayout.java` — added User Management to navigation
 
-    X1C Compatibility: FTPS connections for the X1C require SSL Session Reuse. Ensure bambu.use-bouncy-castle=true is set in your .env and the JVM flag -Djdk.tls.useExtendedMasterSecret=false is used.
+---
 
-🛡️ CYBERSECURITY HARDENING (Makerspace Fork)
+## Contributing
 
-This version includes specific security enhancements developed for the Makerspace environment:
+1. Fork this repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Test your changes locally (build + run + verify)
+4. Open a Pull Request with a clear description of what you changed and why
 
-    AES-256 at Rest: The user database (bambu-users.mv.db) is encrypted at the file level. If the server is stolen or the file is exfiltrated, user credentials remain unreadable.
+---
 
-    Progressive Tarpitting: Brute-force attacks are neutralized by an exponential delay (tarpit) on failed login attempts.
+## License
 
-    Enforced SSL: All HTTP (8080) traffic is automatically redirected to HTTPS (8443).
+[Apache-2.0](LICENSE.txt) — same as the upstream project.
 
-    Bcrypt Hashing: No plain-text passwords are stored in the configuration; all credentials use high-entropy Bcrypt hashes.
+## Acknowledgments
 
-🚀 Installation & Build
-1. Prerequisites
-
-    Java 21 LTS (OpenJDK/Zulu/Temurin)
-
-    Maven (For building from source)
-
-    SSL Certificates: cert.pem and key.pem must be present in the root folder.
-
-2. Build from Source
-Bash
-
-mvn clean install -Pproduction
-
-3. Fedora/Linux Certificate Trust
-
-To stop the browser from blocking real-time updates (Vaadin Push), you must trust your self-signed cert:
-Bash
-
-sudo cp cert.pem /etc/pki/ca-trust/source/anchors/bambu.crt
-sudo update-ca-trust
-
-⚙️ Configuration (.env)
-
-Create an .env file in the root directory. Note: If you change the AES password, you must delete the old .mv.db file.
-Properties
-
-# --- SERVER ---
-quarkus.http.host=0.0.0.0
-quarkus.http.port=8080
-
-# --- DATABASE (AES HARDENING) ---
-QUARKUS_DATASOURCE_JDBC_URL=jdbc:h2:file:./bambu-users;CIPHER=AES
-QUARKUS_DATASOURCE_PASSWORD=YourMakerspaceSecretKey password123
-
-# --- ADMIN CREDENTIALS ---
-# Password: admin (Bcrypt hashed)
-bambu.users.admin.password=$2a$10$0tygFgl.x3QZR9Az9TYcmu0ip22PqYi5r8QPx.nubrZVYtODy9vsGI
-bambu.users.admin.role=admin
-
-# --- PRINTERS ---
-bambu.printers.p1s_lab.device-id=SERIAL_NUMBER
-bambu.printers.p1s_lab.access-code=ACCESS_CODE
-bambu.printers.p1s_lab.ip=192.168.1.XXX
-
-🛠️ Execution
-
-Use the included start-farm.sh script. This handles port conflicts (killing ghosts on 8080) and injects the necessary SSL properties into the JVM.
-Bash
-
-chmod +x start-farm.sh
-./start-farm.sh
-
-Feature Support Matrix
-Feature	A1	P1P/S	X1C
-Remote View	[x]	[x]	[x]
-SD Upload	[x]	[x]	[x]²
-AMS Support	?	[x]	[x]
-🤝 Contributing
-
-    Fork this repository to the BellinghamMakerspace organization.
-
-    Create a feature branch (git checkout -b feature/new-logic).
-
-    Ensure all security hardening tests pass (try a curl brute-force loop).
-
-    Open a Pull Request.
-
+- [TFyre/bambu-farm](https://github.com/TFyre/bambu-farm) — the original project
+- Bellingham Makerspace members for testing and feedback
