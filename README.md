@@ -1,6 +1,3 @@
-Since you are deploying this for the Bellingham Makerspace organization, the README needs to balance clear "Makerspace" instructions with the Cybersecurity student hardening you've implemented.
-
-Here is a comprehensive, production-ready README.md that incorporates your SSL redirects, AES encryption, and troubleshooting steps.
 🖨️ Bambu Farm (Hardened Edition)
 
 A secure, web-based dashboard to monitor and manage multiple Bambu Lab printers (A1, P1, X1 series) over a local network or cloud.
@@ -191,3 +188,4 @@ AMS Support	?	[x]	[x]
     Ensure all security hardening tests pass (try a curl brute-force loop).
 
     Open a Pull Request.
+
